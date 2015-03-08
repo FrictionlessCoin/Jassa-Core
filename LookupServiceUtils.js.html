@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Jassa-Core Source: sponate/LookupServiceUtils.js</title>
+
+	<!--[if lt IE 9]>
+	<script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+	<![endif]-->
+	<link type="text/css" rel="stylesheet" href="styles/sunlight.default.css">
+
+	
+	<link type="text/css" rel="stylesheet" href="styles/site.simplex.css">
+	
+</head>
+
+<body>
+<div class="container-fluid">
+	<div class="navbar navbar-fixed-top ">
+		<div class="navbar-inner">
+			<a class="brand" href="index.html">Jassa-Core</a>
+			<ul class="nav">
+				
+				<li class="dropdown">
+					<a href="classes.list.html" class="dropdown-toggle" data-toggle="dropdown">Classes<b
+						class="caret"></b></a>
+
+					<ul class="dropdown-menu ">
+						
+						<li>
+							<a href="Cache.html">Cache</a>
+						</li>
+						
+						<li>
+							<a href="Cache.BasicCacheStorage.html">BasicCacheStorage</a>
+						</li>
+						
+						<li>
+							<a href="Cache.LocalStorageCacheStorage.html">LocalStorageCacheStorage</a>
+						</li>
+						
+
+					</ul>
+				</li>
+				
+			</ul>
+		</div>
+	</div>
+
+	<div class="row-fluid">
+
+		
+			<div class="span12">
+				
+				<div id="main">
+					
+
+
+		<h1 class="page-title">Source: sponate/LookupServiceUtils.js</h1>
+    
+    <section>
+        <article>
+            <pre class="sunlight-highlight-javascript linenums">var ConceptUtils = require('../sparql/ConceptUtils');
+var LookupServiceSparqlQuery = require('../service/lookup_service/LookupServiceSparqlQuery');
+var LookupServiceTransform = require('../service/lookup_service/LookupServiceTransform');
+var LookupServiceFallback = require('../service/lookup_service/LookupServiceFallback');
+var LookupServiceFn = require('../service/lookup_service/LookupServiceFn');
+
+var LookupServiceIdFilter = require('../service/lookup_service/LookupServiceIdFilter');
+var LookupServiceChunker = require('../service/lookup_service/LookupServiceChunker');
+
+var BestLabelConfig = require('../sparql/BestLabelConfig');
+var ObjectUtils = require('../util/ObjectUtils');
+var MappedConceptUtils = require('./MappedConceptUtils');
+var NodeUtils = require('../rdf/NodeUtils');
+
+var UriUtils = require('../util/UriUtils');
+
+var HashMap = require('../util/collection/HashMap');
+
+var AccUtils = require('./AccUtils');
+
+
+var LookupServiceUtils = {
+
+        /*
+    createTransformAggResultSetPart: function(agg) {
+        //var fn = LookupServiceUtils.createTransformAccResultSetPart(agg);
+
+        var result = function(resultSetPart) {
+            var acc = fn(resultSetPart);
+
+            var r = acc.getValue();
+            return r;
+        };
+
+        return result;
+    },
+    */
+
+    createTransformAccResultSetPart: function(agg) {
+
+        var result = function(resultSetPart) {
+            // AccMap expected here
+            var acc = agg.createAcc();
+            //console.log('resultSetPart', resultSetPart);
+
+            var bindings = resultSetPart.getBindings();
+            bindings.forEach(function(binding) {
+                acc.accumulate(binding);
+            });
+
+            //console.log('LSVAL: ' + JSON.stringify(agg));
+            //var r = acc.getState();
+            //return r;
+            return acc;
+        };
+
+        return result;
+    },
+
+
+    createLookupServiceNodeLabels: function(sparqlService, chunkSize, langs, predicates) {
+        var blc = new BestLabelConfig(langs, predicates);
+        var mappedConcept = MappedConceptUtils.createMappedConceptBestLabel(blc);
+        var result = this.createLookupServiceMappedConcept(sparqlService, mappedConcept);
+
+
+        if(chunkSize) {
+            result = new LookupServiceChunker(result, chunkSize);
+        }
+
+        result = new LookupServiceIdFilter(result, function(node) {
+            // TODO Using a proper URI validator would increase quality
+            var r = node &amp;&amp; node.isUri();
+            if(r) {
+                var uri = node.getUri();
+                r = UriUtils.isValidUri(uri);
+            }
+            return r;
+        });
+
+        var fallback = new LookupServiceFn(function(key) {
+            var r = NodeUtils.toPrettyString(key);
+            return r;
+            //var r = new HashMap();
+
+            //keys.forEach(function(key) {
+                //var val = NodeUtils.toPrettyString(key);
+                //r.put(key, val);
+            //});
+
+            //return r;
+        });
+
+//        var fallback = new LookupServiceTransform(result, function(doc, id) {
+//        });
+
+        result = new LookupServiceFallback(result, fallback, function(val, key) {
+            var r = val == null || val.displayLabel == null;
+            return r;
+        }, function(fallback, primary) {
+            var result = {};
+            if(primary != null) {
+                ObjectUtils.extend(result, primary); // Make a copy to avoid possibly corrupting cached data
+            }
+
+            result.displayLabel = fallback;
+
+            return result;
+
+        });
+
+
+        return result;
+    },
+
+    /**
+     * public static &lt;T> LookupService&lt;Node, T> createLookupService(QueryExecutionFactory sparqlService, MappedConcept&lt;T> mappedConcept)
+     */
+    createLookupServiceMappedConcept: function(sparqlService, mappedConcept) {
+        var ls = this.createLookupServiceMappedConceptAcc(sparqlService, mappedConcept);
+
+        var result = new LookupServiceTransform(ls, function(acc) {
+            var r = acc.getValue();
+            return r;
+        });
+
+        return result;
+        /*
+        var concept = mappedConcept.getConcept();
+        var query = ConceptUtils.createQueryList(concept);
+
+        // TODO Set up a projection using the grouping variable and the variables referenced by the aggregator
+        query.setQueryResultStar(true);
+
+        var result = this.createLookupServiceAgg(sparqlService, query, concept.getVar(), mappedConcept.getAgg());
+
+        return result;
+*/
+//        var ls = new LookupServiceSparqlQuery(sparqlService, query, concept.getVar());
+//        var agg = mappedConcept.getAgg();
+//        var fnTransform = this.createTransformAggResultSetPart(agg);
+//
+//        var result = new LookupServiceTransform(ls, fnTransform);
+//        return result;
+    },
+
+    /*
+    createLookupServiceAgg: function(sparqlService, query, groupVar, agg) {
+        var ls = new LookupServiceSparqlQuery(sparqlService, query, groupVar);
+        var fnTransform = this.createTransformAggResultSetPart(agg);
+
+        var result = new LookupServiceTransform(ls, fnTransform);
+        return result;
+    },
+    */
+
+
+    createLookupServiceMappedConceptAcc: function(sparqlService, mappedConcept) {
+        var concept = mappedConcept.getConcept();
+        var query = ConceptUtils.createQueryList(concept);
+        var groupVar = concept.getVar();
+
+        // TODO Set up a projection using the grouping variable and the variables referenced by the aggregator
+        query.setQueryResultStar(true);
+
+        var aggMap = mappedConcept.getAgg();
+        var subAgg = aggMap.getSubAgg();
+
+        var ls = new LookupServiceSparqlQuery(sparqlService, query, groupVar);
+        //var ls = this.createLookupServiceAcc(sparqlService, query, concept.getVar(), mappedConcept.getAgg());
+        var fnTransform = this.createTransformAccResultSetPart(subAgg);
+
+        var result = new LookupServiceTransform(ls, fnTransform);
+        return result;
+    }
+
+};
+
+module.exports = LookupServiceUtils;
+</pre>
+        </article>
+    </section>
+
+
+
+
+
+				</div>
+
+				<div class="clearfix"></div>
+				<footer>
+					
+					AKSW
+					<br />
+					
+					
+		<span class="copyright">
+		AKSW 2014
+		</span>
+					<br />
+					
+		<span class="jsdoc-message">
+		Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.3.0-alpha5</a>
+		on Sun Mar 08 2015 18:46:40 GMT+0000 (UTC) using the <a href="https://github.com/terryweiss/docstrap">DocStrap template</a>.
+		</span>
+				</footer>
+			</div>
+
+			
+			<br clear="both">
+		</div>
+
+	</div>
+	<script src="scripts/sunlight.js"></script>
+	<script src="scripts/sunlight.javascript.js"></script>
+	<script src="scripts/sunlight-plugin.doclinks.js"></script>
+	<script src="scripts/sunlight-plugin.linenumbers.js"></script>
+	<script src="scripts/sunlight-plugin.menu.js"></script>
+	<script src="scripts/jquery.min.js"></script>
+	<script src="scripts/jquery.scrollTo.js"></script>
+	<script src="scripts/jquery.localScroll.js"></script>
+	<script src="scripts/bootstrap-dropdown.js"></script>
+	<script src="scripts/toc.js"></script>
+
+
+	<script>  Sunlight.highlightAll({lineNumbers:true,  showMenu: true, enableDoclinks :true}); </script>
+
+	<script>
+		$( function () {
+			$( "#toc" ).toc( {
+				selectors   : "h1,h2,h3,h4",
+				showAndHide : false,
+				scrollTo    : 60
+			} );
+			$( "#toc>ul" ).addClass( "nav nav-pills nav-stacked" );
+			$( "#main span[id^='toc']" ).addClass( "toc-shim" );
+
+		} );
+	</script>
+
+	
+
+</body>
+</html>

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Jassa-Core Source: util/collection/HashMap.js</title>
+
+	<!--[if lt IE 9]>
+	<script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+	<![endif]-->
+	<link type="text/css" rel="stylesheet" href="styles/sunlight.default.css">
+
+	
+	<link type="text/css" rel="stylesheet" href="styles/site.simplex.css">
+	
+</head>
+
+<body>
+<div class="container-fluid">
+	<div class="navbar navbar-fixed-top ">
+		<div class="navbar-inner">
+			<a class="brand" href="index.html">Jassa-Core</a>
+			<ul class="nav">
+				
+				<li class="dropdown">
+					<a href="classes.list.html" class="dropdown-toggle" data-toggle="dropdown">Classes<b
+						class="caret"></b></a>
+
+					<ul class="dropdown-menu ">
+						
+						<li>
+							<a href="Cache.html">Cache</a>
+						</li>
+						
+						<li>
+							<a href="Cache.BasicCacheStorage.html">BasicCacheStorage</a>
+						</li>
+						
+						<li>
+							<a href="Cache.LocalStorageCacheStorage.html">LocalStorageCacheStorage</a>
+						</li>
+						
+
+					</ul>
+				</li>
+				
+			</ul>
+		</div>
+	</div>
+
+	<div class="row-fluid">
+
+		
+			<div class="span12">
+				
+				<div id="main">
+					
+
+
+		<h1 class="page-title">Source: util/collection/HashMap.js</h1>
+    
+    <section>
+        <article>
+            <pre class="sunlight-highlight-javascript linenums">var forEach = require('lodash.foreach');
+var Class = require('../../ext/Class');
+var ObjectUtils = require('./../ObjectUtils');
+
+var HashMap = Class.create({
+
+    initialize: function(fnEquals, fnHash) {
+
+        this.fnEquals = fnEquals ? fnEquals : ObjectUtils.isEqual;
+        this.fnHash = fnHash ? fnHash : ObjectUtils.defaultHashCode;
+
+        this.hashToBucket = {};
+
+        var self = this;
+        this.fnGet = function(key) {
+            var r = self.get(key);
+            return r;
+        };
+
+// NOTE: Defining a .length property will cause lodash.forEach and probably some other
+// JS stuff out there mistake this object for an array and cause unexpected behavior.
+// For this reason, use .size()
+//        Object.defineProperty(this, 'length', {
+//            get: function() {
+//                var r = self.entries().length;
+//                return r;
+//            }
+//        });
+    },
+
+    hashCode: function() {
+        var self = this;
+        // The hash system is messy - need to clean up
+        var hashCodeWrapper = function(val) {
+            var r = self.fnHash(val);
+            if(r == null) {
+                r = 3;
+            }
+            else if(ObjectUtils.isString(r)) {
+                r = ObjectUtils.hashCodeStr(r);
+            }
+
+            return r;
+        };
+
+        if(this.hash == null) {
+            var entries = this.entries();
+            var h = 0;
+
+            entries.forEach(function(entry) {
+                var keyHash = hashCodeWrapper(entry.key);
+                var valHash = hashCodeWrapper(entry.val);
+
+                h += 19 * keyHash + 7919 * valHash;
+            });
+
+            this.hash = h;
+        }
+
+        return this.hash;
+    },
+
+    equals: function(that) {
+        throw new Error('Not implemented yet');
+    },
+
+    clear: function() {
+        this.hashToBucket = {};
+        this.hash = null;
+    },
+
+    putEntry: function(entry) {
+        this.put(entry.key, entry.val);
+    },
+
+    putEntries: function(entries) {
+        var self = this;
+        entries.forEach(function(entry) {
+            self.putEntry(entry);
+        });
+
+        return this;
+    },
+
+    // Deprecated - use putMap instead
+    putAll: function(map) {
+        return this.putMap(map);
+    },
+
+    putMap: function(map) {
+        var entries = map.entries();
+        var result = this.putEntries(entries);
+        return result;
+    },
+
+    getOrCreate: function(key, initVal) {
+        var result;
+
+        var containsKey = this.containsKey(key);
+        if(!containsKey) {
+            this.put(key, initVal);
+            result = initVal;
+        } else {
+            result = this.get(key);
+        }
+
+        return result;
+    },
+
+    put: function(key, val) {
+        this.hash = null;
+
+        var hash = this.fnHash(key);
+
+        var bucket = this.hashToBucket[hash];
+        if (bucket == null) {
+            bucket = [];
+            this.hashToBucket[hash] = bucket;
+        }
+
+        var keyIndex = this._indexOfKey(bucket, key);
+        if (keyIndex >= 0) {
+            bucket[keyIndex].val = val;
+            return;
+        }
+
+        var entry = {
+            key: key,
+            val: val,
+        };
+
+        bucket.push(entry);
+    },
+
+    _indexOfKey: function(bucket, key) {
+        if (bucket != null) {
+
+            for (var i = 0; i &lt; bucket.length; ++i) {
+                var entry = bucket[i];
+
+                var k = entry.key;
+                if (this.fnEquals(k, key)) {
+                    // entry.val = val;
+                    return i;
+                }
+            }
+
+        }
+
+        return -1;
+    },
+
+    get: function(key) {
+        var hash = this.fnHash(key);
+        var bucket = this.hashToBucket[hash];
+        var i = this._indexOfKey(bucket, key);
+        var result = i >= 0 ? bucket[i].val : null;
+        return result;
+    },
+
+    remove: function(key) {
+        var hash = this.fnHash(key);
+        var bucket = this.hashToBucket[hash];
+        var i = this._indexOfKey(bucket, key);
+
+        var doRemove = i >= 0;
+        if (doRemove) {
+            this.hash = null;
+
+            bucket.splice(i, 1);
+
+            if(bucket.length === 0) {
+                delete this.hashToBucket[hash];
+            }
+        }
+
+        return doRemove;
+    },
+
+    containsKey: function(key) {
+        var hash = this.fnHash(key);
+        var bucket = this.hashToBucket[hash];
+        var result = this._indexOfKey(bucket, key) >= 0;
+        return result;
+    },
+
+    keys: function() {
+        var result = [];
+
+        forEach(this.hashToBucket, function(bucket) {
+            var keys = [];
+            bucket.forEach(function(item) {
+                if (item.key) {
+                    keys.push(item.key);
+                }
+            });
+            result.push.apply(result, keys);
+        });
+
+        return result;
+    },
+
+    values: function() {
+        var entries = this.entries();
+
+        var result = entries.map(function(entry) {
+           return entry.val;
+        });
+
+        return result;
+    },
+
+    entries: function() {
+        var result = [];
+
+        forEach(this.hashToBucket, function(bucket) {
+            result.push.apply(result, bucket);
+        });
+
+        return result;
+    },
+
+    toString: function() {
+        var entries = this.entries();
+        var entryStrs = entries.map(function(entry) {
+            return entry.key + ': ' + entry.val;
+        });
+        var result = '{' + entryStrs.join(', ') + '}';
+        return result;
+    },
+
+    /**
+     * Returns a function for getting elements
+     */
+    asFn: function() {
+        return this.fnGet;
+    },
+
+    size: function() {
+        var entries = this.entries();
+        var result = entries.length;
+        return result;
+    },
+
+    isEmpty: function() {
+        var l = this.size();
+        var result = l === 0;
+        return result;
+    }
+});
+
+module.exports = HashMap;
+</pre>
+        </article>
+    </section>
+
+
+
+
+
+				</div>
+
+				<div class="clearfix"></div>
+				<footer>
+					
+					AKSW
+					<br />
+					
+					
+		<span class="copyright">
+		AKSW 2014
+		</span>
+					<br />
+					
+		<span class="jsdoc-message">
+		Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.3.0-alpha5</a>
+		on Sun Mar 08 2015 18:46:40 GMT+0000 (UTC) using the <a href="https://github.com/terryweiss/docstrap">DocStrap template</a>.
+		</span>
+				</footer>
+			</div>
+
+			
+			<br clear="both">
+		</div>
+
+	</div>
+	<script src="scripts/sunlight.js"></script>
+	<script src="scripts/sunlight.javascript.js"></script>
+	<script src="scripts/sunlight-plugin.doclinks.js"></script>
+	<script src="scripts/sunlight-plugin.linenumbers.js"></script>
+	<script src="scripts/sunlight-plugin.menu.js"></script>
+	<script src="scripts/jquery.min.js"></script>
+	<script src="scripts/jquery.scrollTo.js"></script>
+	<script src="scripts/jquery.localScroll.js"></script>
+	<script src="scripts/bootstrap-dropdown.js"></script>
+	<script src="scripts/toc.js"></script>
+
+
+	<script>  Sunlight.highlightAll({lineNumbers:true,  showMenu: true, enableDoclinks :true}); </script>
+
+	<script>
+		$( function () {
+			$( "#toc" ).toc( {
+				selectors   : "h1,h2,h3,h4",
+				showAndHide : false,
+				scrollTo    : 60
+			} );
+			$( "#toc>ul" ).addClass( "nav nav-pills nav-stacked" );
+			$( "#main span[id^='toc']" ).addClass( "toc-shim" );
+
+		} );
+	</script>
+
+	
+
+</body>
+</html>

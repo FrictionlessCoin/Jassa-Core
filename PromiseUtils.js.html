@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Jassa-Core Source: util/PromiseUtils.js</title>
+
+	<!--[if lt IE 9]>
+	<script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+	<![endif]-->
+	<link type="text/css" rel="stylesheet" href="styles/sunlight.default.css">
+
+	
+	<link type="text/css" rel="stylesheet" href="styles/site.simplex.css">
+	
+</head>
+
+<body>
+<div class="container-fluid">
+	<div class="navbar navbar-fixed-top ">
+		<div class="navbar-inner">
+			<a class="brand" href="index.html">Jassa-Core</a>
+			<ul class="nav">
+				
+				<li class="dropdown">
+					<a href="classes.list.html" class="dropdown-toggle" data-toggle="dropdown">Classes<b
+						class="caret"></b></a>
+
+					<ul class="dropdown-menu ">
+						
+						<li>
+							<a href="Cache.html">Cache</a>
+						</li>
+						
+						<li>
+							<a href="Cache.BasicCacheStorage.html">BasicCacheStorage</a>
+						</li>
+						
+						<li>
+							<a href="Cache.LocalStorageCacheStorage.html">LocalStorageCacheStorage</a>
+						</li>
+						
+
+					</ul>
+				</li>
+				
+			</ul>
+		</div>
+	</div>
+
+	<div class="row-fluid">
+
+		
+			<div class="span12">
+				
+				<div id="main">
+					
+
+
+		<h1 class="page-title">Source: util/PromiseUtils.js</h1>
+    
+    <section>
+        <article>
+            <pre class="sunlight-highlight-javascript linenums">var shared = require('./shared');
+var Promise = shared.Promise;
+
+var ObjectUtils = require('./ObjectUtils');
+
+var PromiseUtils = {
+
+    /**
+     * Set a new service as an attribute of an object, thereby cancelling
+     * all prior requests
+     */
+    replaceService: function(obj, attr, newRawService) {
+
+        var oldService = obj[attr];
+        if(oldService &amp;&amp; oldService.cancelAll) {
+            oldService.cancelAll();
+        }
+
+        obj[attr] = newRawService != null ? PromiseUtils.lastRequestify(newRawService) : null;
+    },
+
+    /**
+     * Takes an object and creates a new one where each method is wrapped
+     * such that sucessive calls will cancel prior promises yeld by that method
+     *
+     * A cancelAll method to cancell all active requests is provided as well
+     */
+    lastRequestify: function(obj) {
+        var result = {};
+
+        var bind = function(val, obj) {
+            var r = function() {
+                var s = val.apply(obj, arguments);
+                return s;
+            };
+            return r;
+        };
+
+        var fns = [];
+        for(var key in obj) {
+            var val = obj[key];
+
+            if(ObjectUtils.isFunction(val)) {
+                var fn = PromiseUtils.lastRequest(bind(val, obj));
+
+                result[key] = fn;
+
+                fns.push(fn);
+            }
+        }
+
+        result.cancelAll = function() {
+            fns.forEach(function(fn) {
+                try {
+                    if(fn.deferred) {
+                        fn.deferred.cancel();
+                    }
+                } catch(e) {
+                    console.log(e);
+                }
+            });
+        };
+
+        return result;
+    },
+
+    all: function(promises) {
+        var r = Promise.all(promises)
+            .cancellable()
+            .catch(Promise.CancellationError, function(e) {
+                promises.forEach(function(promise) {
+                    try {
+                        if(promise &amp;&amp; promise.cancel) {
+                            promise.cancel();
+                        }
+                    } catch(x) {
+                        console.log('[ERROR] Cancelling a promise raised an exception');
+                    }
+                });
+
+                throw e;
+            });
+
+        return r;
+    },
+
+
+    createDeferred: function(isCancellable) {
+        var _resolve;
+        var _reject;
+
+        var promise = new Promise(function() {
+            _resolve = arguments[0];
+            _reject = arguments[1];
+        });
+
+        if(isCancellable) {
+            promise.cancellable();
+        }
+
+        return {
+            resolve: _resolve,
+            reject: _reject,
+            promise: function() { return promise; },
+            isCancellable: function() {
+                var r;
+
+                if(promise.isCancellable) {
+                    r = promise.isCancellable();
+                } else if(promise.abort) {
+                    r = true;
+                }
+
+                return r;
+            },
+            cancel: function() {
+                if(promise.cancel) {
+                    promise.cancel();
+                } else if(promise.abort) {
+                    promise.abort();
+                }
+            }
+        };
+    },
+
+    defaultAbortFn: function(deferred) {
+        deferred.cancel();
+    },
+
+    defaultDeferredFn: function() {
+        return PromiseUtils.createDeferred(true);
+    },
+
+
+    /**
+     * Wraps a promise supplier function (i.e. a function returning a promise)
+     * that delays between requests
+     */
+    postpone: function(promiseSupplierFn, ms, abortFn, deferredFactoryFn) {
+
+        ms = ms == null ? 50 : ms;
+        abortFn = abortFn || this.defaultAbortFn;
+        deferredFactoryFn = deferredFactoryFn || PromiseUtils.defaultDeferredFn;
+
+        return function() {
+            var args = arguments;
+            var deferred = deferredFactoryFn();
+            var running = null;
+
+            var timeout = setTimeout(function() {
+                running = promiseSupplierFn.apply(this, args);
+                running.then(function() {
+                    deferred.resolve.apply(this, arguments);
+                }).fail(function() {
+                    deferred.reject.apply(this, arguments);
+                });
+            }, ms);
+
+            var result = deferred.promise();
+            result.abort = function() {
+                if(running == null) {
+                    clearTimeout(timeout);
+                } else if(abortFn != null) {
+                    abortFn(running);
+                }
+            };
+
+            return result;
+        };
+    },
+
+    /**
+     * Returns a function returning a promise that wraps a function returning promises.
+     * Only the resolution of the most recently created promise will be resolved.
+     */
+    lastRequest: function(promiseSupplierFn, abortFn, deferredFactoryFn) {
+        var deferred = null;
+        var prior = null;
+        var counter = 0;
+
+        abortFn = abortFn || PromiseUtils.defaultAbortFn;
+        deferredFactoryFn = deferredFactoryFn || PromiseUtils.defaultDeferredFn;
+
+        return function() {
+            if(deferred == null) {
+                deferred = deferredFactoryFn(); // jQuery.Deferred()
+            }
+
+            this.deferred = deferred;
+
+            //var args = arguments;
+
+            var now = ++counter;
+            //console.log('now ' + now + ' for ', args);
+            var next = promiseSupplierFn.apply(this, arguments);
+
+            if(abortFn != null &amp;&amp; prior != null) {
+                abortFn(prior);
+            }
+            prior = next;
+
+            next.then(function() {
+                if(now === counter &amp;&amp; deferred) {
+                    //console.log('resolved' + now + ' for ', args);
+                    deferred.resolve.apply(this, arguments);
+                    deferred = null;
+                }
+            }, function() {
+                if(now === counter &amp;&amp; deferred) {
+                    //console.log('rejected' + now + ' for ', args);
+                    deferred.reject.apply(this, arguments);
+                    deferred = null;
+                }
+            });
+
+
+            return deferred.promise();
+        };
+
+    },
+};
+
+module.exports = PromiseUtils;
+</pre>
+        </article>
+    </section>
+
+
+
+
+
+				</div>
+
+				<div class="clearfix"></div>
+				<footer>
+					
+					AKSW
+					<br />
+					
+					
+		<span class="copyright">
+		AKSW 2014
+		</span>
+					<br />
+					
+		<span class="jsdoc-message">
+		Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.3.0-alpha5</a>
+		on Sun Mar 08 2015 18:46:40 GMT+0000 (UTC) using the <a href="https://github.com/terryweiss/docstrap">DocStrap template</a>.
+		</span>
+				</footer>
+			</div>
+
+			
+			<br clear="both">
+		</div>
+
+	</div>
+	<script src="scripts/sunlight.js"></script>
+	<script src="scripts/sunlight.javascript.js"></script>
+	<script src="scripts/sunlight-plugin.doclinks.js"></script>
+	<script src="scripts/sunlight-plugin.linenumbers.js"></script>
+	<script src="scripts/sunlight-plugin.menu.js"></script>
+	<script src="scripts/jquery.min.js"></script>
+	<script src="scripts/jquery.scrollTo.js"></script>
+	<script src="scripts/jquery.localScroll.js"></script>
+	<script src="scripts/bootstrap-dropdown.js"></script>
+	<script src="scripts/toc.js"></script>
+
+
+	<script>  Sunlight.highlightAll({lineNumbers:true,  showMenu: true, enableDoclinks :true}); </script>
+
+	<script>
+		$( function () {
+			$( "#toc" ).toc( {
+				selectors   : "h1,h2,h3,h4",
+				showAndHide : false,
+				scrollTo    : 60
+			} );
+			$( "#toc>ul" ).addClass( "nav nav-pills nav-stacked" );
+			$( "#main span[id^='toc']" ).addClass( "toc-shim" );
+
+		} );
+	</script>
+
+	
+
+</body>
+</html>

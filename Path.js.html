@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Jassa-Core Source: facete/Path.js</title>
+
+	<!--[if lt IE 9]>
+	<script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+	<![endif]-->
+	<link type="text/css" rel="stylesheet" href="styles/sunlight.default.css">
+
+	
+	<link type="text/css" rel="stylesheet" href="styles/site.simplex.css">
+	
+</head>
+
+<body>
+<div class="container-fluid">
+	<div class="navbar navbar-fixed-top ">
+		<div class="navbar-inner">
+			<a class="brand" href="index.html">Jassa-Core</a>
+			<ul class="nav">
+				
+				<li class="dropdown">
+					<a href="classes.list.html" class="dropdown-toggle" data-toggle="dropdown">Classes<b
+						class="caret"></b></a>
+
+					<ul class="dropdown-menu ">
+						
+						<li>
+							<a href="Cache.html">Cache</a>
+						</li>
+						
+						<li>
+							<a href="Cache.BasicCacheStorage.html">BasicCacheStorage</a>
+						</li>
+						
+						<li>
+							<a href="Cache.LocalStorageCacheStorage.html">LocalStorageCacheStorage</a>
+						</li>
+						
+
+					</ul>
+				</li>
+				
+			</ul>
+		</div>
+	</div>
+
+	<div class="row-fluid">
+
+		
+			<div class="span12">
+				
+				<div id="main">
+					
+
+
+		<h1 class="page-title">Source: facete/Path.js</h1>
+    
+    <section>
+        <article>
+            <pre class="sunlight-highlight-javascript linenums">var Class = require('../ext/Class');
+
+var Step = require('./Step');
+
+/**
+ * A path is a sequence of steps
+ *
+ * TODO This class should inherit from array; the main difference are the equal and hashCode functions
+ *
+ * @param steps
+ * @returns {ns.Path}
+ */
+var Path = Class.create({
+    classLabel: 'jassa.facete.Path',
+
+    initialize: function(steps) {
+        this.steps = steps ? steps : [];
+    },
+
+    getParent: function() {
+        var l = this.steps.length;
+
+        var result = l === 0 ? null : new Path(this.steps.slice(0, l - 1));
+        return result;
+    },
+
+    getLength: function() {
+        return this.steps.length;
+    },
+
+    isEmpty: function() {
+        var result = this.steps.length === 0;
+        return result;
+    },
+
+    toString: function() {
+        var result = this.steps.join(' ');
+        return result;
+    },
+
+    concat: function(other) {
+        var result = new Path(this.steps.concat(other.steps));
+        return result;
+    },
+
+    getLastStep: function() {
+        var steps = this.steps;
+        var n = steps.length;
+
+        var result;
+        if(n === 0) {
+            result = null;
+        } else {
+            result = steps[n - 1];
+        }
+
+        return result;
+    },
+
+    getSteps: function() {
+        return this.steps;
+    },
+
+    slice: function(start, end) {
+        var newSteps = this.steps.slice(start, end);
+        var result = new Path(newSteps);
+        return result;
+    },
+
+    startsWith: function(other) {
+        var n = other.steps.length;
+        if(n > this.steps.length) {
+            return false;
+        }
+
+        for(var i = 0; i &lt; n; ++i) {
+            var thisStep = this.steps[i];
+            var otherStep = other.steps[i];
+
+            //console.log("      ", thisStep, otherStep);
+            if(!thisStep.equals(otherStep)) {
+                return false;
+            }
+        }
+
+        return true;
+    },
+
+    hashCode: function() {
+        if(this.hash == null) {
+            this.hash = this.steps.reduce(function(tmpHash, step) {
+                var r = tmpHash + step.hashCode();
+                return r;
+            }, 1357);
+        }
+
+        return this.hash;
+    },
+
+    // a equals b = a startsWidth b &amp;&amp; a.len = b.len
+    equals: function(other) {
+        if(!other) {
+            return false;
+        }
+
+        var n = this.steps.length;
+        if(n != other.steps.length) {
+            return false;
+        }
+
+        var result = this.startsWith(other);
+        return result;
+    },
+
+
+    // Create a new path with a step appended
+    // TODO Maybe replace with clone().append() - no, because then the path would not be immutable anymore
+    copyAppendStep: function(step) {
+        var newSteps = this.steps.slice(0);
+        newSteps.push(step);
+
+        var result = new Path(newSteps);
+
+        return result;
+    },
+
+    toJson: function() {
+        var result = [];
+        var steps = this.steps;
+
+        for(var i = 0; i &lt; steps.length; ++i) {
+            var step = steps[i];
+
+            var stepJson = step.toJson();
+            result.push(stepJson);
+        }
+
+        return result;
+    },
+
+    /*
+     *
+     * TODO Make result distinct
+     */
+    getPropertyNames: function() {
+        var result = [];
+        var steps = this.steps;
+
+        for(var i = 0; i &lt; steps.length; ++i) {
+            var step = steps[i];
+            var propertyName = step.getPropertyName();
+            result.push(propertyName);
+        }
+
+        return result;
+    }
+});
+
+
+/**
+ * Input must be a json array of json for the steps.
+ *
+ */
+Path.fromJson = function(json) {
+    var steps = [];
+
+    for(var i = 0; i &lt; json.length; ++i) {
+        var item = json[i];
+
+        var step = Step.fromJson(item);
+
+        steps.push(step);
+    }
+
+    var result = new Path(steps);
+    return result;
+};
+
+
+Path.parse = function(pathStr) {
+    pathStr = pathStr.trim();
+
+    var items = pathStr.length !== 0 ? pathStr.split(' ') : [];
+    var steps = items.map(function(item) {
+
+        //if(item === "&lt;^") {
+            //return new ns.StepFacet(-1);
+        //} else if(item === "^" || item === ">^") {
+            //return new ns.StepFacet(1);
+        //} else {
+            return Step.parse(item);
+        //}
+    });
+
+    //console.log("Steps for pathStr " + pathStr + " is ", steps);
+
+    var result = new Path(steps);
+
+    return result;
+};
+
+module.exports = Path;
+</pre>
+        </article>
+    </section>
+
+
+
+
+
+				</div>
+
+				<div class="clearfix"></div>
+				<footer>
+					
+					AKSW
+					<br />
+					
+					
+		<span class="copyright">
+		AKSW 2014
+		</span>
+					<br />
+					
+		<span class="jsdoc-message">
+		Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.3.0-alpha5</a>
+		on Sun Mar 08 2015 18:46:40 GMT+0000 (UTC) using the <a href="https://github.com/terryweiss/docstrap">DocStrap template</a>.
+		</span>
+				</footer>
+			</div>
+
+			
+			<br clear="both">
+		</div>
+
+	</div>
+	<script src="scripts/sunlight.js"></script>
+	<script src="scripts/sunlight.javascript.js"></script>
+	<script src="scripts/sunlight-plugin.doclinks.js"></script>
+	<script src="scripts/sunlight-plugin.linenumbers.js"></script>
+	<script src="scripts/sunlight-plugin.menu.js"></script>
+	<script src="scripts/jquery.min.js"></script>
+	<script src="scripts/jquery.scrollTo.js"></script>
+	<script src="scripts/jquery.localScroll.js"></script>
+	<script src="scripts/bootstrap-dropdown.js"></script>
+	<script src="scripts/toc.js"></script>
+
+
+	<script>  Sunlight.highlightAll({lineNumbers:true,  showMenu: true, enableDoclinks :true}); </script>
+
+	<script>
+		$( function () {
+			$( "#toc" ).toc( {
+				selectors   : "h1,h2,h3,h4",
+				showAndHide : false,
+				scrollTo    : 60
+			} );
+			$( "#toc>ul" ).addClass( "nav nav-pills nav-stacked" );
+			$( "#main span[id^='toc']" ).addClass( "toc-shim" );
+
+		} );
+	</script>
+
+	
+
+</body>
+</html>
